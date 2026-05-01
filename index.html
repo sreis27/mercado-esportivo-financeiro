@@ -755,6 +755,7 @@ async function renderHomeTable() {
             <td><div class="row-actions">
               <button class="btn-icon" onclick="marcarPago('${l.id}')" title="Marcar como pago">✓</button>
               <button class="btn-icon" onclick="editarLanc('${l.id}')">✎</button>
+              <button class="btn-icon danger" onclick="deletarLancHome('${l.id}')">🗑</button>
             </div></td>
           </tr>`;
         }).join('')}
@@ -1076,16 +1077,29 @@ async function salvarLanc() {
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
 
-async function deletarLanc(id) {
-  const l = cache.lancamentos?.find(x => x.id === id);
+async function deletarLanc(id, voltarPara) {
+  // Tenta achar na cache de lançamentos (se vazia, busca direto)
+  let l = cache.lancamentos?.find(x => x.id === id);
+  if (!l) {
+    try { l = (await sbGet(`lancamentos_financeiros?id=eq.${id}`))[0]; } catch(e) {}
+  }
   if (l?.recorrente_id) {
     if (!confirm('Este é um lançamento recorrente. Apagar somente este? (Para apagar todos os futuros, use a página Recorrentes.)')) return;
   } else {
     if (!confirm('Excluir este lançamento?')) return;
   }
-  try { await sbDelete('lancamentos_financeiros', id); showToast('Excluído'); showPage('lancamentos'); }
-  catch(e) { showToast('Erro: ' + e.message, true); }
+  try {
+    await sbDelete('lancamentos_financeiros', id);
+    showToast('Excluído');
+    // Recarrega a página onde tava
+    const ativa = document.querySelector('.nav-item.active');
+    const idx = [...document.querySelectorAll('.nav-item')].indexOf(ativa);
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    showPage(voltarPara || map[idx] || 'lancamentos');
+  } catch(e) { showToast('Erro: ' + e.message, true); }
 }
+
+async function deletarLancHome(id) { return deletarLanc(id, 'home'); }
 
 // ===================================================================
 // PÁGINA: MOVIMENTAÇÕES
