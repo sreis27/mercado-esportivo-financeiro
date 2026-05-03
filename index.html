@@ -991,14 +991,21 @@ async function salvarLanc() {
     if (!agente || !laranja || !bookie) { showToast('Preencha agente, laranja e bookie', true); return; }
     const bookieNome = cache.bookies.find(b=>b.id===bookie)?.nome || '';
     const agenteNome = cache.agentes.find(a=>a.id===agente)?.nome || '';
+    // Auto-prefixar descrição com info da compra
+    const prefixo = `${bookieNome} ${laranja} (agente ${agenteNome})`;
+    payload.descricao = payload.descricao ? `${prefixo} — ${payload.descricao}` : prefixo;
     try {
       const novaConta = await sbPost('contas', {
         casa: bookieNome,
-        nome: laranja,
+        login: laranja,
         agente: agenteNome,
+        agente_id: agente,
         situacao: 'ATIVA',
         saldo: depIni,
-        observacao: `Compra ${fmtDate(payload.data)}`,
+        custo_aquisicao: payload.valor,
+        deposito_inicial: depIni,
+        data_compra: payload.data,
+        observacoes: `Compra ${fmtDate(payload.data)}`,
       });
       contaCriadaId = novaConta[0]?.id;
       payload.conta_terceiro_id = contaCriadaId;
@@ -1125,7 +1132,7 @@ async function renderMovimentacoes() {
           ${movs.length === 0 ? '<tr><td colspan="6" class="empty-state">Sem movimentações.</td></tr>' :
           movs.map(m => {
             const ctc = ct[m.conta_terceiro_id];
-            const ctLabel = ctc ? `${ctc.nome} / ${ctc.casa}` : '-';
+            const ctLabel = ctc ? `${ctc.login} / ${ctc.casa}` : '-';
             return `<tr>
               <td>${fmtDate(m.data)}</td>
               <td><span class="badge badge-mov">${esc(cats[m.categoria_id]?.nome || '-')}</span></td>
@@ -1154,7 +1161,7 @@ function abrirMovimentacao() {
   // Conta de terceiro: lista contas existentes
   const sel = document.getElementById('mContaTerceiro');
   sel.innerHTML = '<option value="">— selecione —</option>' + cache.contasTerceiros.map(c =>
-    `<option value="${c.id}">${esc(c.nome)} / ${esc(c.casa)}${c.situacao && c.situacao !== 'ATIVA' ? ' (' + c.situacao + ')' : ''}</option>`
+    `<option value="${c.id}">${esc(c.login)} / ${esc(c.casa)}${c.situacao && c.situacao !== 'ATIVA' ? ' (' + c.situacao + ')' : ''}</option>`
   ).join('');
 
   document.getElementById('modalMov').classList.add('open');
@@ -1238,7 +1245,7 @@ async function abrirRelatorioContas() {
             const lucro = (v.parciais + v.finais) - (v.custo + v.depIni + v.aportes);
             const enc = ctc?.situacao === 'ENCERRADA';
             return `<tr>
-              <td><b>${esc(ctc?.nome || '-')}</b> / ${esc(ctc?.casa || '-')} ${enc?'<span class="badge badge-saida">Encerrada</span>':''}</td>
+              <td><b>${esc(ctc?.login || '-')}</b> / ${esc(ctc?.casa || '-')} ${enc?'<span class="badge badge-saida">Encerrada</span>':''}</td>
               <td style="text-align:right">${fmtR(v.custo)}</td>
               <td style="text-align:right">${fmtR(v.depIni)}</td>
               <td style="text-align:right">${fmtR(v.aportes)}</td>
