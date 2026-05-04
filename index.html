@@ -354,8 +354,9 @@ tr:hover td { background:rgba(108,99,255,0.04); }
         <select id="mCategoria"></select>
       </div>
       <div class="form-group full">
-        <label>Conta de terceiro *</label>
-        <select id="mContaTerceiro"></select>
+        <label>Conta (texto livre — ex: "Betano Ellian", "365 Will") *</label>
+        <input type="text" id="mContaTerceiro" placeholder="Ex: Betano Ellian" list="mContaTerceiroSugest">
+        <datalist id="mContaTerceiroSugest"></datalist>
       </div>
       <div class="form-group">
         <label>Valor (R$) *</label>
@@ -654,7 +655,6 @@ async function renderHome() {
   const hoje = todayISO();
   const [iniMes, fimMes] = thisMonthRange();
 
-  // Buscar dados em paralelo
   const [lancsMes, contasAposta] = await Promise.all([
     sbGet(`lancamentos_financeiros?select=*&data=gte.${iniMes}&data=lte.${fimMes}`),
     sbGet('contas?select=saldo'),
@@ -662,13 +662,16 @@ async function renderHome() {
   const receitaMes = await fetchReceitaApostas(iniMes, fimMes);
 
   const caixa = contasAposta.reduce((a,c) => a + (parseFloat(c.saldo)||0), 0);
-  const venceHoje = lancsMes.filter(l => l.tipo === 'saida' && l.vencimento === hoje && !l.pago);
-  const venceMes = lancsMes.filter(l => l.tipo === 'saida' && l.vencimento >= hoje && l.vencimento <= fimMes && !l.pago);
-  const totVenceHoje = venceHoje.reduce((a,l)=>a + (parseFloat(l.valor)||0), 0);
-  const totVenceMes = venceMes.reduce((a,l)=>a + (parseFloat(l.valor)||0), 0);
+  const despesasMes = lancsMes.filter(l => l.tipo === 'saida');
+  const pagos = despesasMes.filter(l => l.pago);
+  const venceHoje = despesasMes.filter(l => !l.pago && l.vencimento === hoje);
+  const aVencer = despesasMes.filter(l => !l.pago && l.vencimento > hoje && l.vencimento <= fimMes);
+  const totPagos = pagos.reduce((a,l)=>a+(+l.valor||0), 0);
+  const totHoje = venceHoje.reduce((a,l)=>a+(+l.valor||0), 0);
+  const totAVencer = aVencer.reduce((a,l)=>a+(+l.valor||0), 0);
 
   c.innerHTML = `
-    <div class="cards-grid">
+    <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
       <div class="card">
         <div class="card-label">Receita do mês</div>
         <div class="card-value green">${fmtR(receitaMes)}</div>
@@ -679,15 +682,25 @@ async function renderHome() {
         <div class="card-value accent">${fmtR(caixa)}</div>
         <div class="card-sub">Soma das contas de aposta</div>
       </div>
-      <div class="card clickable" onclick="filtrarHomeContas('hoje')">
-        <div class="card-label">Vencem hoje</div>
-        <div class="card-value ${totVenceHoje>0?'red':''}">${fmtR(totVenceHoje)}</div>
-        <div class="card-sub">${venceHoje.length} pendente(s)</div>
-      </div>
-      <div class="card clickable" onclick="filtrarHomeContas('mes')">
-        <div class="card-label">A pagar este mês</div>
-        <div class="card-value yellow">${fmtR(totVenceMes)}</div>
-        <div class="card-sub">${venceMes.length} pendente(s)</div>
+      <div class="card" style="grid-column:span 2">
+        <div class="card-label">Despesas — ${formatMonth(currentMonth)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-top:0.6rem">
+          <div style="cursor:pointer;padding:0.6rem;border-radius:8px;background:rgba(0,212,170,0.08)" onclick="filtrarHomeContas('pagos')">
+            <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Já pagos</div>
+            <div style="font-family:var(--mono);font-size:1rem;color:var(--green);font-weight:500;margin-top:0.2rem">${fmtR(totPagos)}</div>
+            <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);margin-top:0.1rem">${pagos.length} item(ns)</div>
+          </div>
+          <div style="cursor:pointer;padding:0.6rem;border-radius:8px;background:rgba(255,77,106,0.08)" onclick="filtrarHomeContas('hoje')">
+            <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Vencem hoje</div>
+            <div style="font-family:var(--mono);font-size:1rem;color:${totHoje>0?'var(--red)':'var(--text)'};font-weight:500;margin-top:0.2rem">${fmtR(totHoje)}</div>
+            <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);margin-top:0.1rem">${venceHoje.length} item(ns)</div>
+          </div>
+          <div style="cursor:pointer;padding:0.6rem;border-radius:8px;background:rgba(255,216,77,0.08)" onclick="filtrarHomeContas('avencer')">
+            <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">A vencer (excl. hoje)</div>
+            <div style="font-family:var(--mono);font-size:1rem;color:var(--yellow);font-weight:500;margin-top:0.2rem">${fmtR(totAVencer)}</div>
+            <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);margin-top:0.1rem">${aVencer.length} item(ns)</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -697,10 +710,18 @@ async function renderHome() {
       <button class="pill" onclick="filtrarHomeContas('mes')">Este mês</button>
       <button class="pill" onclick="filtrarHomeContas('vencidas')">Vencidas</button>
       <button class="pill" onclick="filtrarHomeContas('todas')">Todas em aberto</button>
+      <input type="text" id="homeBusca" class="filter-input" placeholder="🔍 Buscar (ex: Amaral, Aluguel...)" oninput="renderHomeTable()" style="margin-left:auto;min-width:240px">
     </div>
 
     <div class="table-card">
-      <div class="table-card-header"><span>Contas a pagar</span></div>
+      <div class="table-card-header">
+        <span>Contas a pagar</span>
+        <div id="homeBulkBar" style="display:none;gap:0.5rem;align-items:center">
+          <span style="color:var(--muted);font-size:0.75rem;font-family:var(--mono)" id="homeBulkLabel"></span>
+          <button class="btn-icon" onclick="bulkMarcarPago()" title="Marcar selecionados como pagos">✓ Pagar</button>
+          <button class="btn-icon danger" onclick="bulkExcluir()" title="Excluir selecionados">🗑 Excluir</button>
+        </div>
+      </div>
       <div id="homeTableBody"></div>
     </div>
   `;
@@ -709,12 +730,14 @@ async function renderHome() {
 }
 
 let _homeFiltro = 'hoje';
+let _homeSelecionados = new Set();
 function filtrarHomeContas(f) {
   _homeFiltro = f;
   document.querySelectorAll('#homePills .pill').forEach((el,i) => {
     const ord = ['hoje','semana','mes','vencidas','todas'];
     el.classList.toggle('active', ord[i] === f);
   });
+  _homeSelecionados.clear();
   renderHomeTable();
 }
 
@@ -724,36 +747,55 @@ async function renderHomeTable() {
   const semanaFim = new Date(); semanaFim.setDate(semanaFim.getDate() + 7);
   const semanaFimISO = semanaFim.toISOString().slice(0,10);
 
-  let url = 'lancamentos_financeiros?select=*&tipo=eq.saida&pago=eq.false&order=vencimento';
+  // Filtros
+  let url = 'lancamentos_financeiros?select=*&tipo=eq.saida&order=vencimento';
   const all = await sbGet(url);
-  let filtrados = all;
-  if (_homeFiltro === 'hoje') filtrados = all.filter(l => l.vencimento === hoje);
-  else if (_homeFiltro === 'semana') filtrados = all.filter(l => l.vencimento >= hoje && l.vencimento <= semanaFimISO);
-  else if (_homeFiltro === 'mes') filtrados = all.filter(l => l.vencimento >= iniMes && l.vencimento <= fimMes);
-  else if (_homeFiltro === 'vencidas') filtrados = all.filter(l => l.vencimento && l.vencimento < hoje);
-  // 'todas' = tudo em aberto
+  let filtrados = all.filter(l => !l.pago);
+  if (_homeFiltro === 'hoje') filtrados = filtrados.filter(l => l.vencimento === hoje);
+  else if (_homeFiltro === 'semana') filtrados = filtrados.filter(l => l.vencimento >= hoje && l.vencimento <= semanaFimISO);
+  else if (_homeFiltro === 'mes') filtrados = filtrados.filter(l => l.vencimento >= iniMes && l.vencimento <= fimMes);
+  else if (_homeFiltro === 'vencidas') filtrados = filtrados.filter(l => l.vencimento && l.vencimento < hoje);
+  else if (_homeFiltro === 'pagos') { filtrados = all.filter(l => l.pago && l.data >= iniMes && l.data <= fimMes); }
+  else if (_homeFiltro === 'avencer') filtrados = filtrados.filter(l => l.vencimento > hoje && l.vencimento <= fimMes);
 
+  // Busca por palavra-chave
+  const q = (document.getElementById('homeBusca')?.value || '').trim().toLowerCase();
+  if (q) {
+    filtrados = filtrados.filter(l => {
+      const cat = cache.categorias.find(c => c.id === l.categoria_id)?.nome || '';
+      return (l.descricao||'').toLowerCase().includes(q) || cat.toLowerCase().includes(q);
+    });
+  }
+
+  window._homeLista = filtrados;
   const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
   const body = document.getElementById('homeTableBody');
   if (filtrados.length === 0) {
-    body.innerHTML = '<div class="empty-state">Nada nesse período.</div>';
+    body.innerHTML = '<div class="empty-state">Nada nesse filtro.</div>';
+    atualizarBulkBar();
     return;
   }
   body.innerHTML = `
     <table>
-      <thead><tr><th>Vencimento</th><th>Categoria</th><th>Descrição</th><th style="text-align:right">Valor</th><th>Status</th><th></th></tr></thead>
+      <thead><tr>
+        <th style="width:36px"><input type="checkbox" id="homeSelAll" onchange="toggleHomeSelAll(this)" style="accent-color:var(--accent);cursor:pointer"></th>
+        <th>Vencimento</th><th>Categoria</th><th>Descrição</th>
+        <th style="text-align:right">Valor</th><th>Status</th><th></th>
+      </tr></thead>
       <tbody>
         ${filtrados.map(l => {
           const venc = l.vencimento;
-          const vencido = venc && venc < hoje;
+          const vencido = venc && venc < hoje && !l.pago;
+          const sel = _homeSelecionados.has(l.id);
           return `<tr>
+            <td><input type="checkbox" ${sel?'checked':''} onchange="toggleHomeSel('${l.id}', this)" style="accent-color:var(--accent);cursor:pointer"></td>
             <td style="${vencido?'color:var(--red);font-weight:600':''}">${fmtDate(venc) || '-'}</td>
             <td>${esc(cats[l.categoria_id]?.nome || '-')}</td>
             <td style="color:var(--muted)">${esc(l.descricao || '')}</td>
             <td style="text-align:right">${fmtR(l.valor)}</td>
-            <td>${vencido ? '<span class="badge badge-saida">Vencido</span>' : '<span class="badge badge-aberto">Em aberto</span>'}</td>
+            <td>${l.pago ? '<span class="badge badge-pago">Pago</span>' : (vencido ? '<span class="badge badge-saida">Vencido</span>' : '<span class="badge badge-aberto">Em aberto</span>')}</td>
             <td><div class="row-actions">
-              <button class="btn-icon" onclick="marcarPago('${l.id}')" title="Marcar como pago">✓</button>
+              ${!l.pago ? `<button class="btn-icon" onclick="marcarPago('${l.id}')" title="Marcar como pago">✓</button>` : ''}
               <button class="btn-icon" onclick="editarLanc('${l.id}')">✎</button>
               <button class="btn-icon danger" onclick="deletarLancHome('${l.id}')">🗑</button>
             </div></td>
@@ -762,6 +804,51 @@ async function renderHomeTable() {
       </tbody>
     </table>
   `;
+  atualizarBulkBar();
+}
+
+function toggleHomeSelAll(chk) {
+  const ids = (window._homeLista||[]).map(l=>l.id);
+  if (chk.checked) ids.forEach(id => _homeSelecionados.add(id));
+  else _homeSelecionados.clear();
+  renderHomeTable();
+}
+function toggleHomeSel(id, chk) {
+  if (chk.checked) _homeSelecionados.add(id);
+  else _homeSelecionados.delete(id);
+  atualizarBulkBar();
+}
+function atualizarBulkBar() {
+  const bar = document.getElementById('homeBulkBar');
+  const lbl = document.getElementById('homeBulkLabel');
+  if (!bar) return;
+  const n = _homeSelecionados.size;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+  if (lbl) lbl.textContent = `${n} selecionado(s)`;
+}
+async function bulkMarcarPago() {
+  const ids = [..._homeSelecionados];
+  if (ids.length === 0) return;
+  if (!confirm(`Marcar ${ids.length} lançamento(s) como pago(s)?`)) return;
+  try {
+    for (const id of ids) {
+      await sbPatch('lancamentos_financeiros', id, { pago: true, data_pagamento: todayISO() });
+    }
+    _homeSelecionados.clear();
+    showToast(`${ids.length} marcado(s) como pago`);
+    renderHome();
+  } catch(e) { showToast('Erro: ' + e.message, true); }
+}
+async function bulkExcluir() {
+  const ids = [..._homeSelecionados];
+  if (ids.length === 0) return;
+  if (!confirm(`Excluir ${ids.length} lançamento(s)? Não dá pra desfazer.`)) return;
+  try {
+    for (const id of ids) await sbDelete('lancamentos_financeiros', id);
+    _homeSelecionados.clear();
+    showToast(`${ids.length} excluído(s)`);
+    renderHome();
+  } catch(e) { showToast('Erro: ' + e.message, true); }
 }
 
 async function marcarPago(id) {
@@ -981,46 +1068,25 @@ async function salvarLanc() {
   }
   if (!payload.data || !catId || !payload.valor) { showToast('Preencha os obrigatórios', true); return; }
 
-  // COMPRA DE CONTA: criar registro em "contas" também
-  let contaCriadaId = null;
+  // COMPRA DE CONTA: campo livre, sem cruzar com dash de contas.
+  // Os dados (agente/laranja/bookie/dep. inicial) vão pra descrição pra ficar pesquisável.
   if (cat?.nome === 'Contas (compra)') {
     const agente = document.getElementById('lAgente').value;
     const laranja = document.getElementById('lLaranja').value.trim();
     const bookie = document.getElementById('lBookie').value;
     const depIni = parseFloat(document.getElementById('lDepIni').value) || 0;
-    if (!agente || !laranja || !bookie) { showToast('Preencha agente, laranja e bookie', true); return; }
     const bookieNome = cache.bookies.find(b=>b.id===bookie)?.nome || '';
     const agenteNome = cache.agentes.find(a=>a.id===agente)?.nome || '';
-    // Auto-prefixar descrição com info da compra
-    const prefixo = `${bookieNome} ${laranja} (agente ${agenteNome})`;
-    payload.descricao = payload.descricao ? `${prefixo} — ${payload.descricao}` : prefixo;
-    try {
-      const novaConta = await sbPost('contas', {
-        casa: bookieNome,
-        login: laranja,
-        agente: agenteNome,
-        agente_id: agente,
-        situacao: 'ATIVA',
-        saldo: depIni,
-        custo_aquisicao: payload.valor,
-        deposito_inicial: depIni,
-        data_compra: payload.data,
-        observacoes: `Compra ${fmtDate(payload.data)}`,
-      });
-      contaCriadaId = novaConta[0]?.id;
-      payload.conta_terceiro_id = contaCriadaId;
-      // Lançamento extra do depósito inicial (se houver)
-      if (depIni > 0) {
-        const catDep = cache.categorias.find(c=>c.nome==='Depósito inicial');
-        if (catDep) {
-          await sbPost('lancamentos_financeiros', {
-            data: payload.data, tipo:'movimentacao', categoria_id: catDep.id,
-            valor: depIni, descricao: `Depósito inicial — ${laranja} / ${bookieNome}`,
-            conta_terceiro_id: contaCriadaId, fonte:'manual'
-          });
-        }
-      }
-    } catch(e) { showToast('Erro criando conta: ' + e.message, true); return; }
+    // Monta prefixo: tudo que tu preencheu vai pra descrição
+    const partes = [];
+    if (bookieNome) partes.push(bookieNome);
+    if (laranja) partes.push(laranja);
+    if (agenteNome) partes.push(`agente ${agenteNome}`);
+    if (depIni > 0) partes.push(`dep ${fmtR(depIni)}`);
+    if (partes.length > 0) {
+      const prefixo = partes.join(' / ');
+      payload.descricao = payload.descricao ? `${prefixo} — ${payload.descricao}` : prefixo;
+    }
   }
 
   // RECORRÊNCIA
@@ -1080,7 +1146,10 @@ async function salvarLanc() {
     }
     showToast('Salvo!');
     closeModal('modalLanc');
-    showPage('lancamentos');
+    // Recarrega a página atual em vez de forçar Lançamentos
+    const ativaIdx = [...document.querySelectorAll('.nav-item')].indexOf(document.querySelector('.nav-item.active'));
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    showPage(map[ativaIdx] || 'home');
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
 
@@ -1115,39 +1184,54 @@ async function renderMovimentacoes() {
   const c = document.getElementById('pageContent');
   const movs = await sbGet('lancamentos_financeiros?select=*&tipo=eq.movimentacao&order=data.desc&limit=2000');
   const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
-  const ct = Object.fromEntries(cache.contasTerceiros.map(c => [c.id, c]));
 
   c.innerHTML = `
     <div class="filter-row">
+      <input type="text" class="filter-input" id="movBusca" placeholder="🔍 Buscar (ex: Betano Ellian)" oninput="filtrarMovimentacoes()" style="min-width:280px">
       <button class="btn-add" onclick="abrirRelatorioContas()">📊 Lucro por conta</button>
     </div>
     <div class="table-card">
-      <div class="table-card-header"><span>Movimentações (${movs.length})</span></div>
-      <table>
-        <thead><tr>
-          <th>Data</th><th>Tipo</th><th>Conta de terceiro</th>
-          <th style="text-align:right">Valor</th><th>Descrição</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${movs.length === 0 ? '<tr><td colspan="6" class="empty-state">Sem movimentações.</td></tr>' :
-          movs.map(m => {
-            const ctc = ct[m.conta_terceiro_id];
-            const ctLabel = ctc ? `${ctc.login} / ${ctc.casa}` : '-';
-            return `<tr>
-              <td>${fmtDate(m.data)}</td>
-              <td><span class="badge badge-mov">${esc(cats[m.categoria_id]?.nome || '-')}</span></td>
-              <td>${esc(ctLabel)}</td>
-              <td style="text-align:right">${fmtR(m.valor)}</td>
-              <td style="color:var(--muted)">${esc(m.descricao || '')}</td>
-              <td><div class="row-actions">
-                <button class="btn-icon danger" onclick="deletarLanc('${m.id}')">🗑</button>
-              </div></td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
+      <div class="table-card-header"><span>Movimentações (<span id="movCount">${movs.length}</span>)</span></div>
+      <div id="movBody"></div>
     </div>
   `;
+  window._movsCache = movs;
+  desenharMovs(movs);
+}
+
+function desenharMovs(movs) {
+  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
+  const body = document.getElementById('movBody');
+  if (!body) return;
+  if (movs.length === 0) { body.innerHTML = '<div class="empty-state">Sem movimentações.</div>'; return; }
+  body.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Data</th><th>Tipo</th>
+        <th style="text-align:right">Valor</th><th>Descrição</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${movs.map(m => `<tr>
+          <td>${fmtDate(m.data)}</td>
+          <td><span class="badge badge-mov">${esc(cats[m.categoria_id]?.nome || '-')}</span></td>
+          <td style="text-align:right">${fmtR(m.valor)}</td>
+          <td>${esc(m.descricao || '')}</td>
+          <td><div class="row-actions">
+            <button class="btn-icon danger" onclick="deletarLanc('${m.id}')">🗑</button>
+          </div></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function filtrarMovimentacoes() {
+  const q = document.getElementById('movBusca').value.trim().toLowerCase();
+  const all = window._movsCache || [];
+  const filt = q ? all.filter(m => (m.descricao||'').toLowerCase().includes(q)) : all;
+  document.getElementById('movCount').textContent = filt.length;
+  desenharMovs(filt);
+}
 }
 
 function abrirMovimentacao() {
@@ -1155,31 +1239,52 @@ function abrirMovimentacao() {
   document.getElementById('mData').value = todayISO();
   document.getElementById('mValor').value = '';
   document.getElementById('mDesc').value = '';
+  document.getElementById('mContaTerceiro').value = '';
 
   popularSelect('mCategoria', cache.categorias.filter(c => c.tipo === 'movimentacao'), 'id', 'nome');
   popularSelect('mContaPg', cache.contasFin, 'id', 'nome', true);
-  // Conta de terceiro: lista contas existentes
-  const sel = document.getElementById('mContaTerceiro');
-  sel.innerHTML = '<option value="">— selecione —</option>' + cache.contasTerceiros.map(c =>
-    `<option value="${c.id}">${esc(c.login)} / ${esc(c.casa)}${c.situacao && c.situacao !== 'ATIVA' ? ' (' + c.situacao + ')' : ''}</option>`
-  ).join('');
+  // Sugestões pra autocompletar: pega "contas" únicas já mencionadas em descrições anteriores
+  popularSugestoesContaTerceiro();
 
   document.getElementById('modalMov').classList.add('open');
+}
+
+async function popularSugestoesContaTerceiro() {
+  const dl = document.getElementById('mContaTerceiroSugest');
+  if (!dl) return;
+  // Pega lançamentos recentes pra extrair contas já usadas
+  try {
+    const lancs = await sbGet('lancamentos_financeiros?select=descricao&order=data.desc&limit=500');
+    const sugestoes = new Set();
+    for (const l of lancs) {
+      if (!l.descricao) continue;
+      // A "conta" é o que tá antes do " — " ou primeiras palavras (até "/")
+      const m = l.descricao.match(/^([^—\-]+?)(?:\s*[—\-]\s*|$)/);
+      if (m && m[1]) {
+        const candidato = m[1].trim();
+        if (candidato.length >= 4 && candidato.length <= 60) sugestoes.add(candidato);
+      }
+    }
+    dl.innerHTML = [...sugestoes].sort().map(s => `<option value="${esc(s)}">`).join('');
+  } catch(e) {}
 }
 
 async function salvarMov() {
   const id = document.getElementById('mId').value;
   const catId = document.getElementById('mCategoria').value;
-  const ctId = document.getElementById('mContaTerceiro').value;
-  if (!catId || !ctId) { showToast('Preencha tipo e conta', true); return; }
+  const conta = document.getElementById('mContaTerceiro').value.trim();
+  if (!catId || !conta) { showToast('Preencha tipo e conta', true); return; }
+
+  // Compor descrição: "<conta> — <descrição opcional>"
+  const descExtra = document.getElementById('mDesc').value.trim();
+  const desc = descExtra ? `${conta} — ${descExtra}` : conta;
 
   const payload = {
     data: document.getElementById('mData').value,
     tipo: 'movimentacao',
     categoria_id: catId,
     valor: parseFloat(document.getElementById('mValor').value) || 0,
-    descricao: document.getElementById('mDesc').value || null,
-    conta_terceiro_id: ctId,
+    descricao: desc,
     conta_pagamento_id: document.getElementById('mContaPg').value || null,
     fonte: 'manual',
   };
@@ -1189,71 +1294,78 @@ async function salvarMov() {
     if (id) await sbPatch('lancamentos_financeiros', id, payload);
     else await sbPost('lancamentos_financeiros', payload);
 
-    // Saque final → marca conta como ENCERRADA
-    const cat = cache.categorias.find(c => c.id === catId);
-    if (cat?.nome === 'Saque final') {
-      try { await sbPatch('contas', ctId, { situacao: 'ENCERRADA' }); } catch(e) {}
-    }
-
     showToast('Salvo!');
     closeModal('modalMov');
-    showPage('movimentacoes');
+    const ativaIdx = [...document.querySelectorAll('.nav-item')].indexOf(document.querySelector('.nav-item.active'));
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    showPage(map[ativaIdx] || 'home');
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
 
 async function abrirRelatorioContas() {
-  // Lucro real por conta encerrada
-  const movs = await sbGet('lancamentos_financeiros?select=*&tipo=eq.movimentacao&limit=10000');
-  const compras = await sbGet(`lancamentos_financeiros?select=*&tipo=eq.saida&conta_terceiro_id=not.is.null&limit=10000`);
-  const ct = Object.fromEntries(cache.contasTerceiros.map(c => [c.id, c]));
-  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
-
-  // Agrupar por conta
-  const porConta = {};
-  for (const m of [...movs, ...compras]) {
-    const k = m.conta_terceiro_id;
-    if (!k) continue;
-    if (!porConta[k]) porConta[k] = { custo:0, depIni:0, aportes:0, parciais:0, finais:0 };
-    const cn = cats[m.categoria_id]?.nome || '';
-    const v = parseFloat(m.valor)||0;
-    if (cn === 'Contas (compra)') porConta[k].custo += v;
-    else if (cn === 'Depósito inicial') porConta[k].depIni += v;
-    else if (cn === 'Aporte') porConta[k].aportes += v;
-    else if (cn === 'Saque parcial') porConta[k].parciais += v;
-    else if (cn === 'Saque final') porConta[k].finais += v;
-  }
-
-  // Render
   const c = document.getElementById('pageContent');
   c.innerHTML = `
     <button class="btn-outline" onclick="showPage('movimentacoes')">← voltar</button>
-    <h2 style="font-family:var(--mono);color:var(--accent);margin:1rem 0;font-size:0.95rem;letter-spacing:0.1em;text-transform:uppercase">Lucro real por conta</h2>
-    <div class="table-card">
+    <h2 style="font-family:var(--mono);color:var(--accent);margin:1rem 0;font-size:0.95rem;letter-spacing:0.1em;text-transform:uppercase">📊 Lucro por conta — busca</h2>
+    <div class="filter-row">
+      <input type="text" class="filter-input" id="busContaQ" placeholder="🔍 Digite a conta (ex: Betano Ellian)" oninput="buscarLucroConta()" style="min-width:340px">
+      <span style="color:var(--muted);font-size:0.78rem;font-family:var(--mono)">A busca soma todos os lançamentos cuja descrição contém o texto digitado.</span>
+    </div>
+    <div id="busContaResultado"></div>
+  `;
+}
+
+async function buscarLucroConta() {
+  const q = document.getElementById('busContaQ').value.trim().toLowerCase();
+  const div = document.getElementById('busContaResultado');
+  if (q.length < 3) {
+    div.innerHTML = '<div class="empty-state">Digite ao menos 3 letras pra buscar.</div>';
+    return;
+  }
+  // Busca em todos lançamentos (mov + saída de Contas (compra))
+  const todos = await sbGet('lancamentos_financeiros?select=*&limit=10000');
+  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
+
+  // Filtra lançamentos cuja descrição contém o q
+  const match = todos.filter(l => (l.descricao||'').toLowerCase().includes(q));
+  if (match.length === 0) {
+    div.innerHTML = '<div class="empty-state">Nenhum lançamento encontrado pra "' + esc(q) + '".</div>';
+    return;
+  }
+
+  // Agrupar
+  let custo=0, depIni=0, aportes=0, parciais=0, finais=0;
+  for (const l of match) {
+    const cn = cats[l.categoria_id]?.nome || '';
+    const v = parseFloat(l.valor)||0;
+    if (cn === 'Contas (compra)') custo += v;
+    else if (cn === 'Depósito inicial') depIni += v;
+    else if (cn === 'Aporte') aportes += v;
+    else if (cn === 'Saque parcial') parciais += v;
+    else if (cn === 'Saque final') finais += v;
+  }
+  const lucro = (parciais + finais) - (custo + depIni + aportes);
+
+  div.innerHTML = `
+    <div class="cards-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      <div class="card"><div class="card-label">Custo</div><div class="card-value red">${fmtR(custo)}</div></div>
+      <div class="card"><div class="card-label">Dep. inicial</div><div class="card-value yellow">${fmtR(depIni)}</div></div>
+      <div class="card"><div class="card-label">Aportes</div><div class="card-value yellow">${fmtR(aportes)}</div></div>
+      <div class="card"><div class="card-label">Saques parciais</div><div class="card-value green">${fmtR(parciais)}</div></div>
+      <div class="card"><div class="card-label">Saque final</div><div class="card-value green">${fmtR(finais)}</div></div>
+      <div class="card"><div class="card-label">Lucro real</div><div class="card-value ${lucro>=0?'green':'red'}">${fmtR(lucro)}</div></div>
+    </div>
+    <div class="table-card" style="margin-top:1.5rem">
+      <div class="table-card-header"><span>Lançamentos encontrados (${match.length})</span></div>
       <table>
-        <thead><tr>
-          <th>Conta (laranja / bookie)</th>
-          <th style="text-align:right">Custo</th>
-          <th style="text-align:right">Dep. inicial</th>
-          <th style="text-align:right">Aportes</th>
-          <th style="text-align:right">Saques parciais</th>
-          <th style="text-align:right">Saque final</th>
-          <th style="text-align:right">Lucro real</th>
-        </tr></thead>
+        <thead><tr><th>Data</th><th>Tipo</th><th style="text-align:right">Valor</th><th>Descrição</th></tr></thead>
         <tbody>
-          ${Object.entries(porConta).map(([cid, v]) => {
-            const ctc = ct[cid];
-            const lucro = (v.parciais + v.finais) - (v.custo + v.depIni + v.aportes);
-            const enc = ctc?.situacao === 'ENCERRADA';
-            return `<tr>
-              <td><b>${esc(ctc?.login || '-')}</b> / ${esc(ctc?.casa || '-')} ${enc?'<span class="badge badge-saida">Encerrada</span>':''}</td>
-              <td style="text-align:right">${fmtR(v.custo)}</td>
-              <td style="text-align:right">${fmtR(v.depIni)}</td>
-              <td style="text-align:right">${fmtR(v.aportes)}</td>
-              <td style="text-align:right;color:var(--green)">${fmtR(v.parciais)}</td>
-              <td style="text-align:right;color:var(--green)">${fmtR(v.finais)}</td>
-              <td style="text-align:right;color:${lucro>=0?'var(--green)':'var(--red)'};font-weight:600">${fmtR(lucro)}</td>
-            </tr>`;
-          }).join('') || '<tr><td colspan="7" class="empty-state">Sem dados.</td></tr>'}
+          ${match.sort((a,b)=>a.data>b.data?1:-1).map(l => `<tr>
+            <td>${fmtDate(l.data)}</td>
+            <td>${esc(cats[l.categoria_id]?.nome || '-')}</td>
+            <td style="text-align:right">${fmtR(l.valor)}</td>
+            <td style="color:var(--muted)">${esc(l.descricao || '')}</td>
+          </tr>`).join('')}
         </tbody>
       </table>
     </div>
