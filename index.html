@@ -1070,6 +1070,7 @@ async function salvarLanc() {
 
   // COMPRA DE CONTA: campo livre, sem cruzar com dash de contas.
   // Os dados (agente/laranja/bookie/dep. inicial) vão pra descrição pra ficar pesquisável.
+  let depositoInicialPendente = null;
   if (cat?.nome === 'Contas (compra)') {
     const agente = document.getElementById('lAgente').value;
     const laranja = document.getElementById('lLaranja').value.trim();
@@ -1086,6 +1087,22 @@ async function salvarLanc() {
     if (partes.length > 0) {
       const prefixo = partes.join(' / ');
       payload.descricao = payload.descricao ? `${prefixo} — ${payload.descricao}` : prefixo;
+    }
+    // Se preencheu depósito inicial, gera lançamento de movimentação separado
+    if (depIni > 0 && !id) {
+      const catDep = cache.categorias.find(c => c.nome === 'Depósito inicial');
+      if (catDep) {
+        const descMov = [bookieNome, laranja].filter(Boolean).join(' ');
+        depositoInicialPendente = {
+          data: payload.data,
+          tipo: 'movimentacao',
+          categoria_id: catDep.id,
+          valor: depIni,
+          descricao: descMov || `Depósito inicial — ${payload.descricao}`,
+          conta_pagamento_id: payload.conta_pagamento_id,
+          fonte: 'auto-compra',
+        };
+      }
     }
   }
 
@@ -1143,6 +1160,11 @@ async function salvarLanc() {
       _editingLancPayload = null;
     } else {
       await sbPost('lancamentos_financeiros', payload);
+    }
+    // Se foi compra de conta com depósito inicial, gera o lançamento de movimentação automático
+    if (depositoInicialPendente) {
+      try { await sbPost('lancamentos_financeiros', depositoInicialPendente); }
+      catch(e) { console.error('Erro criando depósito inicial automático:', e); }
     }
     showToast('Salvo!');
     closeModal('modalLanc');
@@ -1572,16 +1594,41 @@ function renderDRELines(dre) {
 }
 
 let chartInstance = null;
-function renderChartMensal(todos) {
+async function renderChartMensal(todos) {
+  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
   const porMes = {};
   for (const l of todos) {
     const m = l.data.slice(0,7);
     if (!porMes[m]) porMes[m] = { rec: 0, desp: 0 };
     const v = parseFloat(l.valor) || 0;
-    if (l.tipo === 'entrada') porMes[m].rec += v;
+    const catNome = cats[l.categoria_id]?.nome || '';
+    // Pula "Receita EV+" porque vem do dash (evita dupla contagem)
+    if (l.tipo === 'entrada' && catNome !== 'Receita EV+') porMes[m].rec += v;
     else if (l.tipo === 'saida') porMes[m].desp += v;
   }
-  const meses = Object.keys(porMes).sort();
+
+  // Buscar P/L do dash de registros pra cada mês com dado + mês atual
+  const hojeMes = new Date().toISOString().slice(0,7);
+  const mesesUnion = new Set([...Object.keys(porMes), hojeMes]);
+  // Garante que todos meses entre 05/26 e o último com dado estejam presentes
+  const ord = [...mesesUnion].sort();
+  for (const m of ord) {
+    if (!porMes[m]) porMes[m] = { rec: 0, desp: 0 };
+    // Só puxa P/L do dash se m >= 2026-05
+    if (m >= '2026-05') {
+      const [ano, mes] = m.split('-');
+      const ini = `${ano}-${mes}-01`;
+      const ultimoDia = new Date(parseInt(ano), parseInt(mes), 0).getDate();
+      const fim = `${ano}-${mes}-${String(ultimoDia).padStart(2,'0')}`;
+      try {
+        const pl = await fetchReceitaApostas(ini, fim);
+        porMes[m].rec += pl;
+      } catch(e) {}
+    }
+  }
+
+  // Mantém só meses que tenham algum dado (receita > 0 OU despesa > 0)
+  const meses = Object.keys(porMes).filter(m => porMes[m].rec !== 0 || porMes[m].desp !== 0).sort();
   const labels = meses.map(formatMonth);
   const recData = meses.map(m => porMes[m].rec);
   const despData = meses.map(m => porMes[m].desp);
