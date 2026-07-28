@@ -194,7 +194,6 @@ tr:hover td { background:rgba(108,99,255,0.04); }
       <div class="nav-item" onclick="showPage('dre')"><span class="icon">📊</span><span>Resumo / DRE</span></div>
       <div class="nav-section">Cadastros</div>
       <div class="nav-item" onclick="showPage('agentes')"><span class="icon">🤝</span><span>Agentes</span></div>
-      <div class="nav-item" onclick="showPage('contasFin')"><span class="icon">💳</span><span>Contas financeiras</span></div>
       <div class="nav-item" onclick="showPage('categorias')"><span class="icon">🏷️</span><span>Categorias</span></div>
     </nav>
     <div class="sidebar-footer">
@@ -243,10 +242,6 @@ tr:hover td { background:rgba(108,99,255,0.04); }
       <div class="form-group">
         <label>Vencimento</label>
         <input type="date" id="lVenc">
-      </div>
-      <div class="form-group">
-        <label>Conta de pagamento</label>
-        <select id="lContaPg"></select>
       </div>
       <div class="form-group">
         <label>Forma de pagamento</label>
@@ -362,10 +357,6 @@ tr:hover td { background:rgba(108,99,255,0.04); }
         <label>Valor (R$) *</label>
         <input type="number" id="mValor" step="0.01" placeholder="0.00">
       </div>
-      <div class="form-group">
-        <label>Conta de pagamento</label>
-        <select id="mContaPg"></select>
-      </div>
       <div class="form-group full">
         <label>Descrição</label>
         <input type="text" id="mDesc" maxlength="200" placeholder="Ex: Aporte conta KTO Marta, Saque parcial Bet365 Will...">
@@ -456,48 +447,7 @@ tr:hover td { background:rgba(108,99,255,0.04); }
 </div>
 
 <!-- MODAL CONTA FINANCEIRA -->
-<div class="modal-overlay" id="modalCF">
-  <div class="modal" style="max-width:520px">
-    <h2 id="cfTitle">Nova Conta Financeira</h2>
-    <input type="hidden" id="cfId">
-    <div class="form-grid">
-      <div class="form-group full">
-        <label>Nome *</label>
-        <input type="text" id="cfNome" placeholder="Ex: Banrisul CC, Caixinha, PIX Inter">
-      </div>
-      <div class="form-group">
-        <label>Banco</label>
-        <input type="text" id="cfBanco">
-      </div>
-      <div class="form-group">
-        <label>Tipo</label>
-        <select id="cfTipo">
-          <option value="">—</option>
-          <option value="corrente">Corrente</option>
-          <option value="poupanca">Poupança</option>
-          <option value="carteira">Carteira</option>
-          <option value="pix">PIX</option>
-          <option value="outra">Outra</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Ativo</label>
-        <select id="cfAtivo">
-          <option value="true">Sim</option>
-          <option value="false">Não</option>
-        </select>
-      </div>
-      <div class="form-group full">
-        <label>Observação</label>
-        <input type="text" id="cfObs" maxlength="200">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-outline" onclick="closeModal('modalCF')">Cancelar</button>
-      <button class="btn-save" onclick="salvarCF()">Salvar</button>
-    </div>
-  </div>
-</div>
+
 
 <div class="toast" id="toast"></div>
 
@@ -510,7 +460,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 const PASSWORD = '0408reis';
 const hdrs = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' };
 
-let cache = { categorias: [], agentes: [], lancamentos: [], contasTerceiros: [], contasFin: [], bookies: [], recorrentes: [] };
+let cache = { categorias: [], agentes: [], lancamentos: [], contasTerceiros: [], bookies: [], recorrentes: [] };
 let currentMonth = new Date().toISOString().slice(0,7);
 let _modalLancEscopo = null; // 'atual' ou 'futuros' quando edita recorrente
 let _editingLancPayload = null;
@@ -521,6 +471,11 @@ let _editingLancPayload = null;
 async function sbGet(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: hdrs });
   return r.ok ? r.json() : [];
+}
+async function sbRpc(fn, body = {}) {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method:'POST', headers: { ...hdrs, 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }
 async function sbPost(table, data) {
   const r = await fetch(`${SB_URL}/rest/v1/${table}`, { method:'POST', headers: { ...hdrs, Prefer: 'return=representation' }, body: JSON.stringify(data) });
@@ -608,18 +563,16 @@ function fecharDropdown() { document.getElementById('ddNovo').classList.remove('
 // CADASTROS
 // ===================================================================
 async function loadCadastros() {
-  const [cats, ags, ct, cf, bk, rec] = await Promise.all([
+  const [cats, ags, ct, bk, rec] = await Promise.all([
     sbGet('categorias_financeiras?select=*&ativo=eq.true&order=ordem'),
     sbGet('agentes?select=*&order=nome'),
     sbGet('contas?select=id,casa,nome,situacao&order=casa'),
-    sbGet('contas_financeiras?select=*&ativo=eq.true&order=nome'),
     sbGet('bookies?select=id,nome&order=nome'),
     sbGet('lancamentos_recorrentes?select=*,categoria:categoria_id(nome)&ativo=eq.true&order=criado_em.desc'),
   ]);
   cache.categorias = cats;
   cache.agentes = ags;
   cache.contasTerceiros = ct;
-  cache.contasFin = cf;
   cache.bookies = bk;
   cache.recorrentes = rec;
 }
@@ -628,11 +581,11 @@ async function loadCadastros() {
 // NAV
 // ===================================================================
 function showPage(page) {
-  const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+  const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','categorias'];
   document.querySelectorAll('.nav-item').forEach((el,i)=>{
     el.classList.toggle('active', map[i] === page);
   });
-  const titles = { home:'Visão do Dia', lancamentos:'Lançamentos', movimentacoes:'Movimentações', recorrentes:'Recorrentes', dre:'Resumo / DRE', agentes:'Agentes', contasFin:'Contas Financeiras', categorias:'Categorias' };
+  const titles = { home:'Visão do Dia', lancamentos:'Lançamentos', movimentacoes:'Movimentações', recorrentes:'Recorrentes', dre:'Resumo / DRE', agentes:'Agentes', categorias:'Categorias' };
   document.getElementById('pageTitle').textContent = titles[page] || '';
 
   if (page === 'home') renderHome();
@@ -641,7 +594,6 @@ function showPage(page) {
   else if (page === 'recorrentes') renderRecorrentes();
   else if (page === 'dre') renderDRE();
   else if (page === 'agentes') renderAgentes();
-  else if (page === 'contasFin') renderContasFin();
   else if (page === 'categorias') renderCategorias();
 }
 
@@ -860,12 +812,15 @@ async function marcarPago(id) {
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
 
+// Receita das apostas via RPC (agregada no servidor, mesma fórmula do dash de registros:
+// lucro_unidades × stake vigente do tipster). Sem limite de linhas, sem download em massa.
+async function fetchReceitaMensal(inicio, fim) {
+  try { return await sbRpc('receita_apostas_mensal', { p_de: inicio, p_ate: fim }); }
+  catch (e) { return []; }
+}
 async function fetchReceitaApostas(inicio, fim) {
-  try {
-    const url = `apostas?select=lucro_reais&data_evento=gte.${inicio}&data_evento=lte.${fim}&status=in.(WON,LOST,VOID,HALF%20WON,HALF%20LOST,CASH%20OUT)&limit=10000`;
-    const rows = await sbGet(url);
-    return rows.reduce((a, r) => a + (parseFloat(r.lucro_reais) || 0), 0);
-  } catch (e) { return 0; }
+  const meses = await fetchReceitaMensal(inicio, fim);
+  return meses.reduce((a, m) => a + (parseFloat(m.r) || 0), 0);
 }
 
 // ===================================================================
@@ -975,7 +930,6 @@ function abrirLanc(tipo, titulo) {
   document.getElementById('lOperador').value = '';
 
   popularSelect('lCategoria', cache.categorias.filter(c => c.tipo === tipo), 'id', 'nome');
-  popularSelect('lContaPg', cache.contasFin, 'id', 'nome', true);
   popularSelect('lAgente', cache.agentes, 'id', 'nome');
   popularSelect('lBookie', cache.bookies, 'id', 'nome');
 
@@ -1035,7 +989,6 @@ function abrirEdicaoLanc(l) {
   document.getElementById('lDesc').value = l.descricao || '';
   document.getElementById('lVenc').value = l.vencimento || '';
   document.getElementById('lFormaPg').value = l.forma_pagamento || '';
-  document.getElementById('lContaPg').value = l.conta_pagamento_id || '';
   document.getElementById('lPago').checked = !!l.pago;
   if (l.operador_id) document.getElementById('lOperador').value = l.operador_id;
   aoMudarCategoria();
@@ -1055,7 +1008,6 @@ async function salvarLanc() {
     descricao: document.getElementById('lDesc').value || null,
     vencimento: document.getElementById('lVenc').value || null,
     forma_pagamento: document.getElementById('lFormaPg').value || null,
-    conta_pagamento_id: document.getElementById('lContaPg').value || null,
     pago: document.getElementById('lPago').checked,
     data_pagamento: document.getElementById('lPago').checked ? (document.getElementById('lData').value) : null,
     operador_id: null,
@@ -1099,7 +1051,6 @@ async function salvarLanc() {
           categoria_id: catDep.id,
           valor: depIni,
           descricao: descMov || `Depósito inicial — ${payload.descricao}`,
-          conta_pagamento_id: payload.conta_pagamento_id,
           fonte: 'auto-compra',
         };
       }
@@ -1150,7 +1101,6 @@ async function salvarLanc() {
           await sbPatch('lancamentos_financeiros', o.id, {
             valor: payload.valor, descricao: payload.descricao,
             categoria_id: payload.categoria_id, forma_pagamento: payload.forma_pagamento,
-            conta_pagamento_id: payload.conta_pagamento_id,
           });
         }
       } else {
@@ -1170,7 +1120,7 @@ async function salvarLanc() {
     closeModal('modalLanc');
     // Recarrega a página atual em vez de forçar Lançamentos
     const ativaIdx = [...document.querySelectorAll('.nav-item')].indexOf(document.querySelector('.nav-item.active'));
-    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','categorias'];
     showPage(map[ativaIdx] || 'home');
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
@@ -1192,7 +1142,7 @@ async function deletarLanc(id, voltarPara) {
     // Recarrega a página onde tava
     const ativa = document.querySelector('.nav-item.active');
     const idx = [...document.querySelectorAll('.nav-item')].indexOf(ativa);
-    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','categorias'];
     showPage(voltarPara || map[idx] || 'lancamentos');
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
@@ -1263,7 +1213,6 @@ function abrirMovimentacao() {
   document.getElementById('mContaTerceiro').value = '';
 
   popularSelect('mCategoria', cache.categorias.filter(c => c.tipo === 'movimentacao'), 'id', 'nome');
-  popularSelect('mContaPg', cache.contasFin, 'id', 'nome', true);
   // Sugestões pra autocompletar: pega "contas" únicas já mencionadas em descrições anteriores
   popularSugestoesContaTerceiro();
 
@@ -1306,7 +1255,6 @@ async function salvarMov() {
     categoria_id: catId,
     valor: parseFloat(document.getElementById('mValor').value) || 0,
     descricao: desc,
-    conta_pagamento_id: document.getElementById('mContaPg').value || null,
     fonte: 'manual',
   };
   if (!payload.data || !payload.valor) { showToast('Data e valor são obrigatórios', true); return; }
@@ -1318,7 +1266,7 @@ async function salvarMov() {
     showToast('Salvo!');
     closeModal('modalMov');
     const ativaIdx = [...document.querySelectorAll('.nav-item')].indexOf(document.querySelector('.nav-item.active'));
-    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','contasFin','categorias'];
+    const map = ['home','lancamentos','movimentacoes','recorrentes','dre','agentes','categorias'];
     showPage(map[ativaIdx] || 'home');
   } catch(e) { showToast('Erro: ' + e.message, true); }
 }
@@ -1457,13 +1405,16 @@ async function renderDRE() {
   const ultimoDia = new Date(parseInt(ano), parseInt(mes), 0).getDate();
   const fim = `${ano}-${mes}-${String(ultimoDia).padStart(2,'0')}`;
 
-  const [lancsMes, todosLancs] = await Promise.all([
+  const [lancsMes, todosLancs, lancsHist] = await Promise.all([
     sbGet(`lancamentos_financeiros?select=*&data=gte.${inicio}&data=lte.${fim}`),
     sbGet('lancamentos_financeiros?select=data,tipo,valor,categoria_id&data=gte.2026-05-01'),
+    sbGet('lancamentos_financeiros?select=data,tipo,valor,categoria_id&data=lt.2026-05-01&order=data'),
   ]);
-  const receitaApostas = await fetchReceitaApostas(inicio, fim);
-  // Receita histórica do dash de registros — só de 05/26 em diante pra bater com o consolidado
-  const receitaApostasGeral = await fetchReceitaApostas('2026-05-01', fim);
+  // Uma chamada só: receita por mês desde 05/26 (RPC server-side)
+  const recMensal = await fetchReceitaMensal('2026-05-01', fim);
+  const mesAtualKey = `${ano}-${mes}`;
+  const receitaApostas = parseFloat((recMensal.find(x => x.mes === mesAtualKey) || {}).r) || 0;
+  const receitaApostasGeral = recMensal.reduce((a, m) => a + (parseFloat(m.r) || 0), 0);
 
   const dreMes = calcDRE(lancsMes, receitaApostas);
   const dreGeral = calcDREGeral(todosLancs, receitaApostasGeral);
@@ -1494,11 +1445,79 @@ async function renderDRE() {
     <div class="dre-card">
       <h3>Evolução mensal</h3>
       <div style="position:relative;width:100%;height:280px"><canvas id="chartMensal"></canvas></div>
+      ${renderTabelaEvolucao(todosLancs, recMensal)}
+    </div>
+
+    <div class="dre-card">
+      <h3>Histórico consolidado (planilha antiga — até abr/26)</h3>
+      ${renderTabelaHistorico(lancsHist)}
     </div>
   `;
 
   popularDropdownMeses(todosLancs);
-  renderChartMensal(todosLancs);
+  renderChartMensal(todosLancs, recMensal);
+}
+
+// Tabela: mês a mês desde mai/26 — receita (apostas + entradas), despesas, resultado
+function renderTabelaEvolucao(todos, recMensal) {
+  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
+  const porMes = {};
+  for (const m of recMensal) porMes[m.mes] = { rec: parseFloat(m.r) || 0, desp: 0 };
+  for (const l of todos) {
+    const m = l.data.slice(0, 7);
+    if (!porMes[m]) porMes[m] = { rec: 0, desp: 0 };
+    const v = parseFloat(l.valor) || 0;
+    const catNome = cats[l.categoria_id]?.nome || '';
+    if (l.tipo === 'entrada' && catNome !== 'Receita EV+') porMes[m].rec += v;
+    else if (l.tipo === 'saida') porMes[m].desp += v;
+  }
+  const hoje = new Date().toISOString().slice(0, 7);
+  const meses = Object.keys(porMes).filter(m => m <= hoje).sort();
+  if (!meses.length) return '';
+  let acc = 0;
+  const linhas = meses.map(m => {
+    const { rec, desp } = porMes[m];
+    const res = rec - desp; acc += res;
+    return `<tr><td>${formatMonth(m)}</td>
+      <td style="text-align:right;color:var(--green)">${fmtR(rec)}</td>
+      <td style="text-align:right;color:var(--red)">${fmtR(desp)}</td>
+      <td style="text-align:right;color:${res>=0?'var(--green)':'var(--red)'}"><b>${fmtR(res)}</b></td>
+      <td style="text-align:right;color:${acc>=0?'var(--green)':'var(--red)'}">${fmtR(acc)}</td></tr>`;
+  }).join('');
+  return `<div style="margin-top:14px;overflow-x:auto"><table>
+    <thead><tr><th>Mês</th><th style="text-align:right">Receita</th><th style="text-align:right">Despesas</th><th style="text-align:right">Resultado</th><th style="text-align:right">Acumulado</th></tr></thead>
+    <tbody>${linhas}</tbody></table></div>`;
+}
+
+// Tabela do histórico consolidado importado da planilha (antes de mai/26)
+function renderTabelaHistorico(lancs) {
+  if (!lancs.length) return '<div class="empty-state">Sem lançamentos históricos.</div>';
+  const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
+  const porMes = {};
+  for (const l of lancs) {
+    const m = l.data.slice(0, 7);
+    if (!porMes[m]) porMes[m] = { rec: null, desp: 0, saq: 0 };
+    const v = parseFloat(l.valor) || 0;
+    const catNome = cats[l.categoria_id]?.nome || '';
+    if (l.tipo === 'entrada' && catNome === 'Receita EV+') porMes[m].rec = (porMes[m].rec || 0) + v;
+    else if (l.tipo === 'saida') porMes[m].desp += v;
+    else if (l.tipo === 'movimentacao') porMes[m].saq += v;
+  }
+  const meses = Object.keys(porMes).sort();
+  const linhas = meses.map(m => {
+    const { rec, desp, saq } = porMes[m];
+    const temRec = rec !== null;
+    const res = temRec ? rec - desp : null;
+    return `<tr><td>${formatMonth(m)}</td>
+      <td style="text-align:right;color:var(--green)">${temRec ? fmtR(rec) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="text-align:right;color:var(--red)">${fmtR(desp)}</td>
+      <td style="text-align:right;color:${res===null?'var(--muted)':(res>=0?'var(--green)':'var(--red)')}"><b>${res===null?'—':fmtR(res)}</b></td>
+      <td style="text-align:right;color:var(--yellow)">${saq ? fmtR(saq) : '<span style="color:var(--muted)">—</span>'}</td></tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto"><table>
+    <thead><tr><th>Mês</th><th style="text-align:right">Receita</th><th style="text-align:right">Despesas</th><th style="text-align:right">Resultado</th><th style="text-align:right">Saques</th></tr></thead>
+    <tbody>${linhas}</tbody></table>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Meses com "—" na receita não têm valor lançado (fev–abr/26).</div></div>`;
 }
 
 function popularDropdownMeses(todos) {
@@ -1594,7 +1613,7 @@ function renderDRELines(dre) {
 }
 
 let chartInstance = null;
-async function renderChartMensal(todos) {
+async function renderChartMensal(todos, recMensal = []) {
   const cats = Object.fromEntries(cache.categorias.map(c => [c.id, c]));
   const porMes = {};
   for (const l of todos) {
@@ -1607,24 +1626,10 @@ async function renderChartMensal(todos) {
     else if (l.tipo === 'saida') porMes[m].desp += v;
   }
 
-  // Buscar P/L do dash de registros pra cada mês com dado + mês atual
-  const hojeMes = new Date().toISOString().slice(0,7);
-  const mesesUnion = new Set([...Object.keys(porMes), hojeMes]);
-  // Garante que todos meses entre 05/26 e o último com dado estejam presentes
-  const ord = [...mesesUnion].sort();
-  for (const m of ord) {
-    if (!porMes[m]) porMes[m] = { rec: 0, desp: 0 };
-    // Só puxa P/L do dash se m >= 2026-05
-    if (m >= '2026-05') {
-      const [ano, mes] = m.split('-');
-      const ini = `${ano}-${mes}-01`;
-      const ultimoDia = new Date(parseInt(ano), parseInt(mes), 0).getDate();
-      const fim = `${ano}-${mes}-${String(ultimoDia).padStart(2,'0')}`;
-      try {
-        const pl = await fetchReceitaApostas(ini, fim);
-        porMes[m].rec += pl;
-      } catch(e) {}
-    }
+  // P/L das apostas por mês — já veio agregado da RPC (uma chamada, sem loop)
+  for (const rm of recMensal) {
+    if (!porMes[rm.mes]) porMes[rm.mes] = { rec: 0, desp: 0 };
+    porMes[rm.mes].rec += parseFloat(rm.r) || 0;
   }
 
   // Mantém só meses que tenham algum dado (receita > 0 OU despesa > 0)
@@ -1731,77 +1736,6 @@ async function deletarAgente(id) {
 // ===================================================================
 // PÁGINA: CONTAS FINANCEIRAS (cadastro de bancos/carteiras)
 // ===================================================================
-async function renderContasFin() {
-  await loadCadastros();
-  const c = document.getElementById('pageContent');
-  const cfs = cache.contasFin;
-
-  c.innerHTML = `
-    <div class="filter-row"><button class="btn-add" onclick="abrirNovaCF()">+ Nova Conta</button></div>
-    <div class="table-card">
-      <table>
-        <thead><tr><th>Nome</th><th>Banco</th><th>Tipo</th><th>Ativo</th><th></th></tr></thead>
-        <tbody>
-          ${cfs.length === 0 ? '<tr><td colspan="5" class="empty-state">Nenhuma conta cadastrada. Adicione bancos/carteiras (Banrisul, Caixinha, PIX...).</td></tr>' :
-          cfs.map(cf => `<tr>
-            <td><b>${esc(cf.nome)}</b></td>
-            <td>${esc(cf.banco || '-')}</td>
-            <td>${esc(cf.tipo || '-')}</td>
-            <td>${cf.ativo ? '<span style="color:var(--green)">Sim</span>' : '<span style="color:var(--muted)">Não</span>'}</td>
-            <td><div class="row-actions">
-              <button class="btn-icon" onclick="editarCF('${cf.id}')">✎</button>
-              <button class="btn-icon danger" onclick="deletarCF('${cf.id}')">🗑</button>
-            </div></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-function abrirNovaCF() {
-  ['cfId','cfNome','cfBanco','cfObs'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('cfTipo').value = '';
-  document.getElementById('cfAtivo').value = 'true';
-  document.getElementById('cfTitle').textContent = 'Nova Conta Financeira';
-  document.getElementById('modalCF').classList.add('open');
-}
-function editarCF(id) {
-  const cf = cache.contasFin.find(x => x.id === id);
-  if (!cf) return;
-  document.getElementById('cfId').value = cf.id;
-  document.getElementById('cfNome').value = cf.nome;
-  document.getElementById('cfBanco').value = cf.banco || '';
-  document.getElementById('cfTipo').value = cf.tipo || '';
-  document.getElementById('cfAtivo').value = String(cf.ativo);
-  document.getElementById('cfObs').value = cf.observacao || '';
-  document.getElementById('cfTitle').textContent = 'Editar Conta Financeira';
-  document.getElementById('modalCF').classList.add('open');
-}
-async function salvarCF() {
-  const id = document.getElementById('cfId').value;
-  const payload = {
-    nome: document.getElementById('cfNome').value.trim(),
-    banco: document.getElementById('cfBanco').value || null,
-    tipo: document.getElementById('cfTipo').value || null,
-    observacao: document.getElementById('cfObs').value || null,
-    ativo: document.getElementById('cfAtivo').value === 'true',
-  };
-  if (!payload.nome) { showToast('Nome obrigatório', true); return; }
-  try {
-    if (id) await sbPatch('contas_financeiras', id, payload);
-    else await sbPost('contas_financeiras', payload);
-    showToast('Salvo!');
-    closeModal('modalCF');
-    await loadCadastros();
-    renderContasFin();
-  } catch(e) { showToast('Erro: ' + e.message, true); }
-}
-async function deletarCF(id) {
-  if (!confirm('Excluir esta conta financeira?')) return;
-  try { await sbDelete('contas_financeiras', id); showToast('Excluído'); await loadCadastros(); renderContasFin(); }
-  catch(e) { showToast('Erro: ' + e.message, true); }
-}
-
 // ===================================================================
 // PÁGINA: CATEGORIAS
 // ===================================================================
