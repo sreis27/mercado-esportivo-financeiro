@@ -609,11 +609,14 @@ async function renderHome() {
 
   const [lancsMes, contasAposta] = await Promise.all([
     sbGet(`lancamentos_financeiros?select=*&data=gte.${iniMes}&data=lte.${fimMes}`),
-    sbGet('contas?select=saldo'),
+    sbGet('contas?select=saldo,moeda'),
   ]);
   const receitaMes = await fetchReceitaApostas(iniMes, fimMes);
 
-  const caixa = contasAposta.reduce((a,c) => a + (parseFloat(c.saldo)||0), 0);
+  // Caixa em R$ só das contas em real; contas em dólar somam à parte (nunca misturar moeda)
+  const caixa     = contasAposta.filter(c => c.moeda !== 'USD').reduce((a,c) => a + (parseFloat(c.saldo)||0), 0);
+  const contasUsd = contasAposta.filter(c => c.moeda === 'USD');
+  const caixaUsd  = contasUsd.reduce((a,c) => a + (parseFloat(c.saldo)||0), 0);
   const despesasMes = lancsMes.filter(l => l.tipo === 'saida');
   const pagos = despesasMes.filter(l => l.pago);
   const venceHoje = despesasMes.filter(l => !l.pago && l.vencimento === hoje);
@@ -632,6 +635,7 @@ async function renderHome() {
       <div class="card">
         <div class="card-label">Caixa</div>
         <div class="card-value accent">${fmtR(caixa)}</div>
+        ${contasUsd.length ? `<div class="card-sub">US$ ${caixaUsd.toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 })} em contas em dólar</div>` : ''}
         <div class="card-sub">Soma das contas de aposta</div>
       </div>
       <div class="card" style="grid-column:span 2">
